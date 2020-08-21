@@ -3,13 +3,14 @@ var express = require("express");
 var path = require("path");
 var cookieParser = require("cookie-parser");
 var logger = require("morgan");
-
 var indexRouter = require("./routes/index");
 var usersRouter = require("./routes/users");
 const campsiteRouter = require("./routes/campsiteRouter");
 const promotionRouter = require("./routes/promotionRouter");
 const partnerRouter = require("./routes/partnerRouter");
 const mongoose = require("mongoose");
+const session = require("express-session");
+const FileStore = require("session-file-store")(session);
 
 const url = "mongodb://localhost:27017/nucampsite";
 const connect = mongoose.connect(url, {
@@ -33,29 +34,58 @@ app.set("view engine", "jade");
 app.use(logger("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
+app.use(cookieParser("12345-67890-09876-54321"));
+
+app.use(
+  session({
+    name: "session-id",
+    secret: "12345-67890-09876-54321",
+    saveUninitialized: false,
+    resave: false,
+    store: new FileStore(),
+  })
+);
 
 //Begin authentication.  It's important to have this function located here because order of operations matters with setting up Middleware
 function auth(req, res, next) {
-  console.log(req.headers);
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    const err = new Error("You are not authenticated!");
-    res.setHeader("WWW-Authenticate", "Basic");
-    err.status = 401;
-    return next(err);
-  }
+  console.log(req.session);
 
-  const auth = Buffer.from(authHeader.split(" ")[1], "base64").toString().split(":"); //simply parsing out the header to grab the username and password from the base64 encoded authorization header.  We'll toss the values into arrays below
-  const user = auth[0];
-  const pass = auth[1];
-  if (user === "admin" && pass === "password") {
-    return next(); // authorized
+  if (!req.session.user) {
+    //if there isn't a signed cookie...
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      const err = new Error("You are not authenticated!");
+      res.setHeader("WWW-Authenticate", "Basic");
+      err.status = 401;
+      return next(err);
+    }
+
+    //NOTE regarding the Buffer class:
+    //  "new Buffer" creates a new Buffer class from the given string using base64 encoding.  Pure JavaScript does not handle straight binary data very well,
+    //  though JavaScript is Unicode friendly. When dealing with TCP streams and reading and writing to the filesystem, it is necessary to deal with purely binary
+    //  streams of data. This is why the buffer class is used... it's handling TCP requests using memory that's allocated outside of the v8 engine.
+    //  A buffer is a region of a physical memory storage used to temporarily store data while it is being moved from one place to another.
+    const auth = Buffer.from(authHeader.split(" ")[1], "base64").toString().split(":");
+    const user = auth[0];
+    const pass = auth[1];
+    if (user === "admin" && pass === "password") {
+      req.session.user = "admin";
+      return next(); // authorized
+    } else {
+      const err = new Error("You are not authenticated!");
+      res.setHeader("WWW-Authenticate", "Basic");
+      err.status = 401;
+      return next(err);
+    }
   } else {
-    const err = new Error("You are not authenticated!");
-    res.setHeader("WWW-Authenticate", "Basic");
-    err.status = 401;
-    return next(err);
+    if (req.session.user === "admin") {
+      console.log("req.session:", req.session);
+      return next();
+    } else {
+      const err = new Error("You are not authenticated!");
+      err.status = 401;
+      return next(err);
+    }
   }
 }
 
