@@ -13,8 +13,9 @@ const session = require("express-session");
 const FileStore = require("session-file-store")(session); //What is this doing? The require funtion is returning anbother function as its return value.  Then we're calling that return function immediately with the 2nd parameter list, session
 const passport = require("passport");
 const authenticate = require("./authenticate");
+const config = require("./config");
 
-const url = "mongodb://localhost:27017/nucampsite";
+const url = config.mongoUrl;
 const connect = mongoose.connect(url, {
   useCreateIndex: true,
   useFindAndModify: false,
@@ -38,36 +39,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser("12345-67890-09876-54321"));
 
-app.use(
-  session({
-    name: "session-id",
-    secret: "12345-67890-09876-54321",
-    saveUninitialized: false,
-    resave: false,
-    store: new FileStore(),
-  })
-);
 app.use(passport.initialize());
-app.use(passport.session());
 
 app.use("/", indexRouter); //why is this here?  Because order of operations matter.  We want users to be routed to the user router before they get challenged to authenticate themselves (so if they don't have any account they can create one)
 app.use("/users", usersRouter);
 
-//Begin authentication.  It's important to have this function located here because order of operations matters with setting up Middleware
-function auth(req, res, next) {
-  console.log(req.user);
-
-  if (!req.user) {
-    //if there isn't a signed cookie...
-    const err = new Error("You are not authenticated!");
-    err.status = 401;
-    return next(err);
-  } else {
-    return next(); //pass to the next middleware
-  }
-}
-
-app.use(auth);
 //end authentication
 app.use(express.static(path.join(__dirname, "public")));
 
