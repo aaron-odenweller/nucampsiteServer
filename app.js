@@ -10,7 +10,9 @@ const promotionRouter = require("./routes/promotionRouter");
 const partnerRouter = require("./routes/partnerRouter");
 const mongoose = require("mongoose");
 const session = require("express-session");
-const FileStore = require("session-file-store")(session);
+const FileStore = require("session-file-store")(session); //What is this doing? The require funtion is returning anbother function as its return value.  Then we're calling that return function immediately with the 2nd parameter list, session
+const passport = require("passport");
+const authenticate = require("./authenticate");
 
 const url = "mongodb://localhost:27017/nucampsite";
 const connect = mongoose.connect(url, {
@@ -45,47 +47,23 @@ app.use(
     store: new FileStore(),
   })
 );
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.use("/", indexRouter); //why is this here?  Because order of operations matter.  We want users to be routed to the user router before they get challenged to authenticate themselves (so if they don't have any account they can create one)
+app.use("/users", usersRouter);
 
 //Begin authentication.  It's important to have this function located here because order of operations matters with setting up Middleware
 function auth(req, res, next) {
-  console.log(req.session);
+  console.log(req.user);
 
-  if (!req.session.user) {
+  if (!req.user) {
     //if there isn't a signed cookie...
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      const err = new Error("You are not authenticated!");
-      res.setHeader("WWW-Authenticate", "Basic");
-      err.status = 401;
-      return next(err);
-    }
-
-    //NOTE regarding the Buffer class:
-    //  "new Buffer" creates a new Buffer class from the given string using base64 encoding.  Pure JavaScript does not handle straight binary data very well,
-    //  though JavaScript is Unicode friendly. When dealing with TCP streams and reading and writing to the filesystem, it is necessary to deal with purely binary
-    //  streams of data. This is why the buffer class is used... it's handling TCP requests using memory that's allocated outside of the v8 engine.
-    //  A buffer is a region of a physical memory storage used to temporarily store data while it is being moved from one place to another.
-    const auth = Buffer.from(authHeader.split(" ")[1], "base64").toString().split(":");
-    const user = auth[0];
-    const pass = auth[1];
-    if (user === "admin" && pass === "password") {
-      req.session.user = "admin";
-      return next(); // authorized
-    } else {
-      const err = new Error("You are not authenticated!");
-      res.setHeader("WWW-Authenticate", "Basic");
-      err.status = 401;
-      return next(err);
-    }
+    const err = new Error("You are not authenticated!");
+    err.status = 401;
+    return next(err);
   } else {
-    if (req.session.user === "admin") {
-      console.log("req.session:", req.session);
-      return next();
-    } else {
-      const err = new Error("You are not authenticated!");
-      err.status = 401;
-      return next(err);
-    }
+    return next(); //pass to the next middleware
   }
 }
 
@@ -93,8 +71,6 @@ app.use(auth);
 //end authentication
 app.use(express.static(path.join(__dirname, "public")));
 
-app.use("/", indexRouter);
-app.use("/users", usersRouter);
 app.use("/campsites", campsiteRouter);
 app.use("/promotions", promotionRouter);
 app.use("/partners", partnerRouter);
